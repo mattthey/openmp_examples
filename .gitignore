@@ -1,0 +1,7 @@
+build/
+cmake-build-debug/
+venv/
+.idea/
+a.out
+
+input*.txt
