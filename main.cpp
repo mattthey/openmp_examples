@@ -1,4 +1,5 @@
 #include <iostream>
+#include <functional>
 #include <vector>
 #include <fstream>
 #include <omp.h>
@@ -6,13 +7,12 @@
 #include <sstream>
 #include <ctime>
 #include <iomanip>
-#include <functional>
 
-double calculatePolygonArea(const std::vector<double>& x, const std::vector<double>& y) {
+double calculatePolygonArea(const std::vector<double>& x, const std::vector<double>& y, const int countThread) {
     const unsigned long n = x.size();
     double sum = 0.0;
 
-    omp_set_num_threads(2);
+    omp_set_num_threads(countThread);
     #pragma omp parallel for reduction(+:sum) default(shared)
     for (int i = 0; i < n; ++i) {
         unsigned long j = (i + 1) % n; // Next vertex index (wraps around using modulo)
@@ -22,11 +22,11 @@ double calculatePolygonArea(const std::vector<double>& x, const std::vector<doub
     return std::abs(sum) * 0.5;
 }
 
-double calculatePolygonArea2(const std::vector<double>& x, const std::vector<double>& y) {
+double calculatePolygonArea2(const std::vector<double>& x, const std::vector<double>& y, const int countThread) {
     const unsigned long n = x.size();
     double sum = 0.0;
 
-    omp_set_num_threads(2);
+    omp_set_num_threads(countThread);
     #pragma omp parallel
     {
         double local_sum = 0.0;
@@ -44,7 +44,7 @@ double calculatePolygonArea2(const std::vector<double>& x, const std::vector<dou
     return std::abs(sum) * 0.5;
 }
 
-double calculatePolygonAreaWithoutOMP(const std::vector<double>& x, const std::vector<double>& y) {
+double calculatePolygonAreaWithoutOMP(const std::vector<double>& x, const std::vector<double>& y, const int countThread) {
     const unsigned long n = x.size();
     double sum = 0.0;
 
@@ -59,17 +59,19 @@ double calculatePolygonAreaWithoutOMP(const std::vector<double>& x, const std::v
 void executeAndPrintDuration(
         std::vector<double>& x,
         std::vector<double>& y,
+        const int countThread,
         std::string methodName,
-        const std::function<double(std::vector<double>, std::vector<double>)>& lambda) {
+        const std::function<double(std::vector<double>, std::vector<double>, const int)>& lambda) {
     clock_t start = clock();
 
-    double area = lambda(x, y);
+    double area = lambda(x, y, countThread);
 
     clock_t endTime = clock();
     double elapsed_seconds = static_cast<double>(endTime - start) / CLOCKS_PER_SEC;
 
     std::cout << "Elapsed time for calculated area with " << methodName << ": "
               << elapsed_seconds << " sec"
+              << " count threads " << countThread
               << " calculated area " << area
               << std::endl;
 }
@@ -87,30 +89,16 @@ void slowReadFile(char* fileName,
         exit(1);
     }
 
-    // Read file into a buffer
-    inputFile.seekg(0, std::ios::end);
-    long fileSize = inputFile.tellg();
-    inputFile.seekg(0, std::ios::beg);
-
-    std::vector<char> buffer(fileSize);
-    inputFile.read(buffer.data(), fileSize);
-    inputFile.close();
-
-    char* data = buffer.data();
-    char* end = data + fileSize;
-
-    while (data < end) {
+    std::string line;
+    while (std::getline(inputFile, line)) {
+        std::istringstream iss(line);
         double xCoord, yCoord;
-        xCoord = std::strtod(data, &data);
-        yCoord = std::strtod(data, &data);
-
-        x.emplace_back(xCoord);
-        y.emplace_back(yCoord);
-
-        // Skip any trailing whitespace or newlines
-        while (data < end && std::isspace(*data)) {
-            ++data;
+        if (!(iss >> xCoord >> yCoord)) {
+            std::cerr << "Failed to parse line\n";
+            exit(1);
         }
+        x.push_back(xCoord);
+        y.push_back(yCoord);
     }
 
     inputFile.close();
@@ -128,15 +116,17 @@ int main(int argc, char* argv[]) {
 
     slowReadFile(argv[1], x, y);
 
-    executeAndPrintDuration(x, y,
+    for (int i = 2; i < 17; i *= 2) {
+        executeAndPrintDuration(x, y, i,
                             "old openMP",
-                            [](std::vector<double> xx, std::vector<double> yy) { return calculatePolygonArea(xx, yy); });
-    executeAndPrintDuration(x, y,
-                            "new openMP",
-                            [](std::vector<double> xx, std::vector<double> yy) { return calculatePolygonArea2(xx, yy); });
-    executeAndPrintDuration(x, y,
+                            [](std::vector<double> xx, std::vector<double> yy, const int ii) { return calculatePolygonArea(xx, yy, ii); });
+        executeAndPrintDuration(x, y, i,
+                                "new openMP",
+                                [](std::vector<double> xx, std::vector<double> yy, const int ii) { return calculatePolygonArea2(xx, yy, ii); });
+    }
+    executeAndPrintDuration(x, y, 1,
                             "without openMP",
-                            [](std::vector<double> xx, std::vector<double> yy) { return calculatePolygonAreaWithoutOMP(xx, yy); });
+                            [](std::vector<double> xx, std::vector<double> yy, const int ii) { return calculatePolygonAreaWithoutOMP(xx, yy, ii); });
 
     return 0;
 }

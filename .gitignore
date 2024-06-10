@@ -2,6 +2,7 @@ build/
 cmake-build-debug/
 venv/
 .idea/
+.vscode/
 a.out
 
 input*.txt
